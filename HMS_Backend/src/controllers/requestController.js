@@ -59,29 +59,52 @@ exports.approveRequest = async (req, res) => {
     }
 
     // check if user already exists
-    const userExists = await User.findOne({ email: request.email });
-    if (userExists) {
-      return res.status(400).json({ message: "User already exists" });
+    let user = await User.findOne({ email: request.email });
+    let isNewUser = false;
+
+    if (!user) {
+      // create default password
+      const hashedPassword = await bcrypt.hash("123456", 10);
+
+      // create user
+      user = await User.create({
+        name: request.name,
+        email: request.email,
+        password: hashedPassword,
+        role: "student",
+        hostelStatus: "approved",
+      });
+      isNewUser = true;
+    } else {
+      // update existing user status
+      user.hostelStatus = "approved";
+      await user.save();
     }
-
-    // create default password
-    const hashedPassword = await bcrypt.hash("123456", 10);
-
-    // create user
-  const newUser = await User.create({
-  name: request.name,
-  email: request.email,
-  password: hashedPassword,
-  role: "student",
-  hostelStatus: "approved",
-});
-
 
     // create allocation
     await Allocation.create({
-      student: newUser._id,
+      student: user._id,
       room: room._id,
     });
+
+    // create or update profile
+    const profileData = {
+      phone: request.phone,
+      year: request.year,
+    };
+
+    if (isNewUser) {
+      await Profile.create({
+        user: user._id,
+        ...profileData,
+      });
+    } else {
+      await Profile.findOneAndUpdate(
+        { user: user._id },
+        { $set: profileData },
+        { upsert: true }
+      );
+    }
 
     // update occupancy
     room.occupied += 1;
@@ -94,7 +117,9 @@ exports.approveRequest = async (req, res) => {
     await request.save();
 
     res.status(200).json({
-      message: "Approved. Account created. Default password: 123456",
+      message: isNewUser 
+        ? "Approved. Account created. Default password: 123456" 
+        : "Approved. Existing student successfully re-allocated.",
     });
   } catch (error) {
     console.error(error.message);
@@ -118,6 +143,17 @@ exports.rejectRequest = async (req, res) => {
     await request.save();
 
     res.status(200).json({ message: "Rejected" });
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+exports.getRequests = async (req, res) => {
+  try {
+    const requests = await AllocationRequest.find({ status: "pending" })
+      .populate("room", "roomNumber floor")
+      .sort({ createdAt: -1 });
+    res.status(200).json(requests);
   } catch (error) {
     console.error(error.message);
     res.status(500).json({ message: "Server error" });

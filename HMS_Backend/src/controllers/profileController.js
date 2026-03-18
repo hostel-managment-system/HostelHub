@@ -7,19 +7,34 @@ exports.getMyProfile = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    console.log("GET PROFILE FOR:", userId); //helps debugging
-
-    const profile = await Profile.findOne({ user: userId })
+    let profile = await Profile.findOne({ user: userId })
       .populate("user", "name email role hostelStatus");
 
     if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found for this user",
-        userId,
+      const User = require("../models/User");
+      const user = await User.findById(userId).select("name email role hostelStatus");
+      return res.status(200).json({
+        user: userId,
+        name: user?.name || "",
+        email: user?.email || "",
+        hostelStatus: user?.hostelStatus || "pending",
+        phone: "",
+        address: "",
+        department: "",
+        year: "",
+        roll: "",
       });
     }
 
-    res.status(200).json(profile);
+    // Flatten user fields for frontend ease
+    const profileObj = profile.toObject();
+    if (profile.user) {
+      profileObj.name = profile.user.name;
+      profileObj.email = profile.user.email;
+      profileObj.hostelStatus = profile.user.hostelStatus;
+    }
+
+    res.status(200).json(profileObj);
   } catch (error) {
     console.error("GET PROFILE ERROR:", error.message);
     res.status(500).json({ message: "Server error" });
@@ -31,13 +46,12 @@ exports.upsertProfile = async (req, res) => {
     const userId = req.user._id;
 
     // whitelist allowed fields
-    const { name, phone, address, department, year, roll } = req.body;
+    const { phone, address, department, year, roll } = req.body;
 
     const profile = await Profile.findOneAndUpdate(
       { user: userId },
       {
         user: userId,
-        name,
         phone,
         address,
         department,
@@ -45,7 +59,7 @@ exports.upsertProfile = async (req, res) => {
         roll,
       },
       { new: true, upsert: true }
-    ).populate("user", "email role hostelStatus");
+    ).populate("user", "name email role hostelStatus");
 
     res.status(200).json({
       message: "Profile saved",
@@ -61,28 +75,26 @@ exports.upsertProfile = async (req, res) => {
 
 exports.getStudents = async (req, res) => {
   try {
-    const { year, department, hostelId } = req.query;
+    const { year, department, hostelId, roomId } = req.query;
+    const yearFilter = year && year !== "all" && year !== "";
+    const deptFilter = department && department !== "all" && department !== "";
+    let allocationsQuery = [];
 
-    if (!hostelId) {
-      return res.status(400).json({ message: "hostelId is required" });
+    const query = { isActive: true };
+    if (roomId) {
+      query.room = roomId;
+    } else if (hostelId) {
+      const rooms = await Room.find({ hostel: hostelId });
+      query.room = { $in: rooms.map(r => r._id) };
     }
 
-    const yearFilter = year && year !== "all";
-    const deptFilter = department && department !== "all";
-
-    const rooms = await Room.find({ hostel: hostelId });
-    const roomIds = rooms.map((r) => r._id);
-
-    const allocations = await Allocation.find({
-      room: { $in: roomIds },
-      isActive: true,
-    })
-      .populate("student", "email role hostelStatus")
+    allocationsQuery = await Allocation.find(query)
+      .populate("student", "name email role hostelStatus")
       .populate("room", "roomNumber floor");
 
     const result = await Promise.all(
-      allocations.map(async (alloc) => {
-        if (alloc.student.role !== "student") return null;
+      allocationsQuery.map(async (alloc) => {
+        if (!alloc.student || alloc.student.role !== "student") return null;
 
         const profile = await Profile.findOne({
           user: alloc.student._id,
@@ -96,7 +108,7 @@ exports.getStudents = async (req, res) => {
         }
 
         return {
-          user: alloc.student,
+          student: alloc.student,
           profile,
           room: alloc.room,
         };
@@ -106,6 +118,41 @@ exports.getStudents = async (req, res) => {
     res.status(200).json(result.filter(Boolean));
   } catch (error) {
     console.error(error.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.getMyAllocation = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // 1. Find the current active allocation
+    const allocation = await Allocation.findOne({ student: userId, isActive: true })
+      .populate({
+        path: 'room',
+        populate: { path: 'hostel', select: 'name gender' }
+      });
+
+    if (!allocation) {
+      return res.status(200).json({ allocated: false });
+    }
+
+    // 2. Find roommates (others in the same room)
+    const roommatesAlloc = await Allocation.find({ 
+      room: allocation.room._id, 
+      student: { $ne: userId },
+      isActive: true 
+    }).populate('student', 'name email');
+
+    const roommates = roommatesAlloc.map(a => a.student);
+
+    res.status(200).json({
+      allocated: true,
+      room: allocation.room,
+      roommates
+    });
+  } catch (error) {
+    console.error("GET ALLOCATION ERROR:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 };

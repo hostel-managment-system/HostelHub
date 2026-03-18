@@ -6,7 +6,7 @@ const Room = require("../models/Room");
 
 exports.getAbsenteesByDate = async (req, res) => {
   try {
-    const { date } = req.query;
+    const { date, hostelId } = req.query;
 
     if (!date) {
       return res.status(400).json({ message: "date is required" });
@@ -22,12 +22,19 @@ exports.getAbsenteesByDate = async (req, res) => {
     const result = [];
 
     for (const r of records) {
+      if (!r.student) continue;
+
       const profile = await Profile.findOne({ user: r.student._id });
 
       const allocation = await Allocation.findOne({
         student: r.student._id,
         isActive: true,
-      }).populate("room", "roomNumber floor");
+      }).populate("room", "roomNumber floor hostel");
+
+      // Filter by hostel if hostelId is provided
+      if (hostelId && allocation?.room?.hostel?.toString() !== hostelId) {
+        continue;
+      }
 
       result.push({
         student: r.student,
@@ -77,6 +84,28 @@ exports.markAttendance = async (req, res) => {
     }
 
     res.status(200).json({ message: "Room attendance saved" });
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.getMyAttendance = async (req, res) => {
+  try {
+    const { days } = req.query;
+    const limitDays = days ? parseInt(days) : 7;
+    
+    // Set start date to X days ago at 00:00:00
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - limitDays);
+    startDate.setHours(0, 0, 0, 0);
+
+    const records = await Attendance.find({
+      student: req.user._id,
+      date: { $gte: startDate }
+    }).sort({ date: -1 });
+
+    res.status(200).json(records);
   } catch (error) {
     console.error(error.message);
     res.status(500).json({ message: "Server error" });

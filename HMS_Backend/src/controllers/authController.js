@@ -26,18 +26,18 @@ exports.login = async (req, res) => {
 
     // success (no force change for now)
     // create token
-const token = jwt.sign(
-  { id: user._id, role: user.role },
-  process.env.JWT_SECRET,
-  { expiresIn: "1d" }
-);
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
-res.status(200).json({
-  message: "Login successful",
-  token,
-  role: user.role,
-  mustChangePassword: user.mustChangePassword,
-});
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    });
 
   } catch (error) {
     console.error(error.message);
@@ -47,18 +47,27 @@ res.status(200).json({
 
 exports.changePassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user._id;
 
-    const user = await User.findOne({ email });
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
-    user.mustChangePassword = false;
+    // verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Current password incorrect" });
+    }
 
-    await user.save();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    await User.updateOne(
+      { _id: userId },
+      { $set: { password: hashedPassword, mustChangePassword: false } }
+    );
 
     res.status(200).json({ message: "Password updated successfully" });
   } catch (error) {
@@ -98,7 +107,7 @@ exports.createWardenByAdmin = async (req, res) => {
       password: hashedPassword,
       role,
       isActive: true,
-      mustChangePassword: true,
+      mustChangePassword: false,
     });
 
     res.status(201).json({

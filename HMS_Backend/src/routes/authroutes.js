@@ -8,6 +8,6 @@ const { login, changePassword, createWardenByAdmin } = require("../controllers/a
 
 
 router.post("/login", login);
-router.post("/change-password", changePassword);
+router.post("/change-password", protect, changePassword);
 router.post("/create-warden", protect, allowRoles("admin"), createWardenByAdmin);
 module.exports = router;

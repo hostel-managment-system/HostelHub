@@ -22,7 +22,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/hostels", hostelRoutes);
 app.use("/api/rooms", roomRoutes);
-app.use("/api/request", requestRoutes);
+app.use("/api/requests", requestRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/feedback", feedbackRoutes);
