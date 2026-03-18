@@ -1,5 +1,8 @@
 const Room = require("../models/Room");
 const Hostel = require("../models/hostel");
+const Allocation = require("../models/Allocation");
+const User = require("../models/User");
+const AllocationRequest = require("../models/AllocationRequest");
 
 exports.createRoom = async (req, res) => {
   try {
@@ -77,6 +80,35 @@ exports.toggleRoomActive = async (req, res) => {
     });
   } catch (error) {
     console.error("TOGGLE ROOM ERROR:", error.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.deleteRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const room = await Room.findById(id);
+    if (!room) {
+      return res.status(404).json({ message: "Room not found" });
+    }
+
+    // Safety: Check if room is occupied
+    if (room.occupied > 0) {
+      return res.status(400).json({ 
+        message: "Cannot delete an occupied room. Please reset the hostel or move students first." 
+      });
+    }
+
+    // Delete associated allocation requests for this room
+    await AllocationRequest.deleteMany({ room: id });
+
+    // Delete the room
+    await Room.findByIdAndDelete(id);
+
+    res.status(200).json({ message: "Room deleted successfully" });
+  } catch (error) {
+    console.error("DELETE ROOM ERROR:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 };
